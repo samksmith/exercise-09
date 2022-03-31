@@ -1,0 +1,150 @@
+---
+title: "exercise-09"
+author: "Sam Smith"
+date: "3/31/2022"
+output: html_document
+---
+
+First, load in the dataset and do some exploratory analyses. Generate the five number summary, mean, and standard deviation for each quantitative variable.
+
+```{r}
+library(tidyverse)
+library(dplyr)
+library(skimr)
+f <- "https://raw.githubusercontent.com/difiore/ada-2022-datasets/main/Street_et_al_2017.csv"
+d <- read_csv(f, col_names = TRUE)
+skim(d)
+```
+
+Plot brain size (ECV) as a function of social group size (Group_size), longevity (Longevity), juvenile period length (Weaning), and reproductive lifespan (Repro_lifespan).
+```{r}
+library(ggplot2)
+library(patchwork)
+names(d)
+p1 <- ggplot(data=d,aes(x=Group_size,y=ECV)) + geom_point(na.rm=TRUE)
+p2 <- ggplot(data=d,aes(x=Longevity,y=ECV)) + geom_point(na.rm=TRUE)
+p3 <- ggplot(data=d,aes(x=Weaning,y=ECV)) + geom_point(na.rm=TRUE)
+p4 <- ggplot(data=d,aes(x=Repro_lifespan,y=ECV)) + geom_point(na.rm=TRUE)
+p1 + p2 + p3 + p4
+```
+
+Derive the ordinary least squares regression coefficients by hand (B1 and B0) for ECV as a function of social group size. Confirm that the results are the same when you use the lm function.
+```{r}
+# first we have to remove any rows of data where ECV or Group_size values are NA.
+d_narm <- d %>% filter(!is.na(ECV)) %>% filter(!is.na(Group_size))
+
+(b1 <- cor(d_narm$ECV,d_narm$Group_size)*sd(d_narm$ECV)/sd(d_narm$Group_size))
+(b0 <- mean(d_narm$ECV) - b1*mean(d_narm$Group_size))
+
+model <- lm(ECV ~ Group_size,data=d)
+summary(model)
+```
+
+Yes the values are the same!
+
+Repeat the analysis above for three different major radiations of primates – “catarrhines”, “platyrrhines”, and “strepsirhines”) separately.
+```{r}
+# new data sets, one for each clade
+cat_data <- d_narm %>% filter(Taxonomic_group == "Catarrhini")
+plat_data <- d_narm %>% filter(Taxonomic_group == "Platyrrhini")
+strep_data <- d_narm %>% filter(Taxonomic_group == "Strepsirhini")
+
+# calculate OLS regression coefficients by hand
+# Catarrhines
+(b1_cat <- cor(cat_data$ECV,cat_data$Group_size)*sd(cat_data$ECV)/sd(cat_data$Group_size))
+(b0_cat <- mean(cat_data$ECV) - b1_cat*mean(cat_data$Group_size))
+
+model_cat <- lm(ECV ~ Group_size,data=cat_data)
+summary(model_cat)
+
+# Platyrrhines
+(b1_plat <- cor(plat_data$ECV,plat_data$Group_size)*sd(plat_data$ECV)/sd(plat_data$Group_size))
+(b0_plat <- mean(plat_data$ECV) - b1_plat*mean(plat_data$Group_size))
+
+model_plat <- lm(ECV ~ Group_size,data=plat_data)
+summary(model_plat)
+
+#Strepsirhines
+(b1_strep <- cor(strep_data$ECV,strep_data$Group_size)*sd(strep_data$ECV)/sd(strep_data$Group_size))
+(b0_strep <- mean(strep_data$ECV) - b1_strep*mean(strep_data$Group_size))
+
+model_strep <- lm(ECV ~ Group_size,data=strep_data)
+summary(model_strep)
+```
+The regression coefficients differ among groups. I can see this by looking at my calculated (by hand) b1 and b0 values for each group and also by looking at the "estimate" column of the print out from the summary function of the model when I run it using lm. The b1 values are pretty similar among groups and all lower than the b1 for the whole dataset together. The b0 values are drastically different among groups and also when comparing groups to the b0 of model that included the entire dataset.
+
+Going back to the regression that includes all the data, calculate the standard error for the slope coefficient, the 95% CI, and the p-value associated with this coefficient by hand. Also extract this same information from the results of running the lm() function.
+
+```{r}
+# standard error for the slope coefficient by hand
+n <- nrow(d_narm)
+mean_x <- mean(d_narm$Group_size)
+y_pred = b0 + b1*d_narm$Group_size
+y_error = d_narm$ECV - y_pred
+x_error <- d_narm$Group_size-mean_x
+(std_err_b1 <- sqrt((sum(y_error^2))/((n-2)*sum((d_narm$Group_size-mean_x)^2))))
+
+# calculate the t statistic by hand
+(t_stat <- b1/std_err_b1)
+# calculate the 95% confidence interval by hand
+(ci_t <- b1 + c(-1, 1) * qt(1 - 0.05 / 2, df = n - 2) * std_err_b1)
+
+# calculate p value by hand
+p_up <- 1-pt(abs(t_stat), df=n-2)
+p_low <- pt(-1*abs(t_stat ), df=n-2)
+(p <- p_up + p_low)
+
+# using built in function
+model <- lm(ECV ~ Group_size,data=d)
+CI <- confint(model, level = 1 - 0.05)
+summary(model)
+```
+The values match!
+
+Then, use a permutation approach with 1000 permutations to generate a null sampling distribution for the slope coefficient. We need to permute the association between the explanatory variable (group size) and response variable (ECV). I will do this by shuffling the Group_size variable and holding the ECV constant. I will also find the p-value associated with the original slope coefficient.
+```{r}
+perms <- 1000
+betas <- c()
+for(i in 1:perms){
+  # shuffle group size assignments
+  permuted_data <- sample(d_narm$Group_size)
+  # calculate b1
+  b <- cor(d_narm$ECV,permuted_data)*sd(d_narm$ECV)/sd(permuted_data)
+  # assign b1 value to the vector
+  betas <- append(betas,b)
+  i=i+1
+}
+
+# look at the graph to see how different the calculated b1 from original data is from the sampling distribution
+hist(betas,xlim=c(-1,4))
+abline(v=b1,col="red")
+
+# find p-value associated with original b1 value
+(p <- sum(abs(betas) >= abs(b1)) / perms)
+```
+When I calculate this value, I get zero. If I increased the number of permutations, I might find a non-zero number for the p-value, but it will still be very tiny.
+
+
+Finally, use bootstrapping to generate a 95% CI for your estimate of the slope coefficient using both the percentile method and the theory-based method (i.e., based on the standard deviation of the bootstrapped sampling distribution). What is the p value associated with your observed slope coefficient based on each of these methods?
+```{r}
+num_boots <- 10000
+boot <- vector(length=num_boots)
+n <- length(d_narm$Group_size)
+indices <-c(1:n)
+for(i in 1:num_boots){
+  # get row number for randomly picked observation
+  index <- sample(indices,n,replace=TRUE)
+  temp_data <- d_narm[index,]
+  boot[[i]] <- cor(temp_data$ECV,temp_data$Group_size)*sd(temp_data$ECV)/sd(temp_data$Group_size)
+} # can also use sample_n
+hist(boot)
+abline(v = quantile(boot, 0.025), col = "red")
+abline(v = quantile(boot, 0.975), col = "red")
+# 95% CI using percentile method
+(CI_percentile_lower <- quantile(boot,0.025))
+(CI_percentile_upper <- quantile(boot,0.975))
+# 95% CI using the theory-based method
+(ci_normal <- mean(boot) + c(-1, 1) * qnorm(1 - 0.05 / 2) * sd(boot))
+# calculating the p value 
+(p_boot <- pnorm(mean(betas),mean(boot),sd(boot)))
+```
